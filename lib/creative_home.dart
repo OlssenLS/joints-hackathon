@@ -29,18 +29,32 @@ class CreativeHome extends StatefulWidget {
 class _CreativeHomeState extends State<CreativeHome> {
   bool medicineTaken = false;
   StreamSubscription<AlertItem>? _alertsSub;
+  StreamSubscription<VitalsData>? _vitalsSub;
+  StreamSubscription<bool>? _connSub;
+  VitalsData _vitals = TelemetryService.instance.latestVitals;
+  bool _isLive = TelemetryService.instance.isConnected;
 
   @override
   void initState() {
     super.initState();
+    _isLive = TelemetryService.instance.isConnected;
+    _vitals = TelemetryService.instance.latestVitals;
+    _vitalsSub = TelemetryService.instance.vitalsStream.listen((data) {
+      if (mounted) setState(() => _vitals = data);
+    });
     _alertsSub = TelemetryService.instance.alertsStream.listen((_) {
       if (mounted) setState(() {});
+    });
+    _connSub = TelemetryService.instance.connectionStream.listen((status) {
+      if (mounted) setState(() => _isLive = status);
     });
   }
 
   @override
   void dispose() {
+    _vitalsSub?.cancel();
     _alertsSub?.cancel();
+    _connSub?.cancel();
     super.dispose();
   }
 
@@ -270,7 +284,11 @@ class _CreativeHomeState extends State<CreativeHome> {
                     ),
                   ),
                   const SizedBox(height: 13),
-                  _NewsCard(onTap: widget.onMonitor),
+                  _NewsCard(
+                    onTap: widget.onMonitor,
+                    isLive: _isLive,
+                    vitals: _vitals,
+                  ),
                   const SizedBox(height: 30),
                 ],
               ),
@@ -536,8 +554,15 @@ class _ActionTile extends StatelessWidget {
 }
 
 class _NewsCard extends StatelessWidget {
-  const _NewsCard({required this.onTap});
+  const _NewsCard({
+    required this.onTap,
+    required this.isLive,
+    required this.vitals,
+  });
   final VoidCallback onTap;
+  final bool isLive;
+  final VitalsData vitals;
+
   @override
   Widget build(BuildContext context) => Material(
     color: const Color(0xFF153F50),
@@ -545,36 +570,63 @@ class _NewsCard extends StatelessWidget {
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(22),
-      child: const Padding(
-        padding: EdgeInsets.all(19),
+      child: Padding(
+        padding: const EdgeInsets.all(19),
         child: Row(
           children: [
             CircleAvatar(
               radius: 23,
-              backgroundColor: Color(0xFF2D7184),
-              child: Icon(Icons.monitor_heart_rounded, color: Colors.white),
+              backgroundColor: isLive ? const Color(0xFF35A66F) : const Color(0xFF2D7184),
+              child: Icon(
+                isLive ? Icons.sensors_rounded : Icons.sensors_off_rounded,
+                color: Colors.white,
+              ),
             ),
-            SizedBox(width: 13),
+            const SizedBox(width: 13),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'SecondBand tersambung',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        isLive ? 'SecondBand Streaming Live' : 'SecondBand Tersambung',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (isLive) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF35A66F),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '3s',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  SizedBox(height: 3),
+                  const SizedBox(height: 3),
                   Text(
-                    'Tanda vital Nenek siap dilihat',
-                    style: TextStyle(color: Color(0xFFB8D9DF), fontSize: 11),
+                    isLive
+                        ? 'HR: ${vitals.hr.toInt()} bpm • SpO2: ${vitals.spo2.toInt()}% • Suhu: ${vitals.temp.toStringAsFixed(1)}°C'
+                        : 'Tanda vital lansia siap dipantau',
+                    style: const TextStyle(color: Color(0xFFB8D9DF), fontSize: 11),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.north_east_rounded, color: Colors.white),
+            const Icon(Icons.north_east_rounded, color: Colors.white),
           ],
         ),
       ),

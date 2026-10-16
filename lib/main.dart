@@ -373,6 +373,96 @@ class _AccessState extends State<Access> {
       pass = TextEditingController(text: 'demo1234');
   bool hidden = true;
   bool loading = false;
+  bool backendOnline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkServer();
+  }
+
+  Future<void> _checkServer() async {
+    final ok = await TelemetryService.instance.checkHealth();
+    if (mounted) setState(() => backendOnline = ok);
+    if (!ok) {
+      final found = await TelemetryService.instance.probeWorkingHost();
+      if (mounted && found != null) {
+        setState(() => backendOnline = true);
+      }
+    }
+  }
+
+  void _editHostDialog(BuildContext context) {
+    final controller = TextEditingController(text: TelemetryService.instance.host);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Koneksi Server Simulation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Pilih alamat backend simulation engine sesuai konfigurasi Anda:',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Host:Port',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                ActionChip(
+                  label: const Text('127.0.0.1:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '127.0.0.1:8000',
+                ),
+                ActionChip(
+                  label: const Text('192.168.1.10:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '192.168.1.10:8000',
+                ),
+                ActionChip(
+                  label: const Text('10.0.2.2:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '10.0.2.2:8000',
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final found = await TelemetryService.instance.probeWorkingHost();
+              await _checkServer();
+              if (context.mounted) {
+                msg(context, found != null ? 'Terhubung ke $found' : 'Backend belum terdeteksi aktif.');
+              }
+            },
+            child: const Text('Deteksi Otomatis'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newHost = controller.text.trim();
+              if (newHost.isNotEmpty) {
+                await TelemetryService.instance.setHost(newHost);
+                await _checkServer();
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Simpan & Cek'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> login() async {
     if (email.text.isEmpty || pass.text.isEmpty) {
@@ -462,6 +552,50 @@ class _AccessState extends State<Access> {
                 child: const Text('Lupa kata sandi?'),
               ),
             ),
+            Center(
+              child: InkWell(
+                onTap: () => _editHostDialog(context),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: (backendOnline ? const Color(0xFF35A66F) : Colors.orange)
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: (backendOnline ? const Color(0xFF35A66F) : Colors.orange)
+                          .withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.circle,
+                        size: 8,
+                        color: backendOnline ? const Color(0xFF35A66F) : Colors.orange,
+                      ),
+                      const SizedBox(width: 7),
+                      Text(
+                        backendOnline
+                            ? 'Server: ${TelemetryService.instance.host} (Online)'
+                            : 'Server: ${TelemetryService.instance.host} (Offline - Ubah)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: backendOnline
+                              ? const Color(0xFF296B54)
+                              : const Color(0xFFB45309),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.tune_rounded, size: 12, color: Color(0xFF627B84)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
             FilledButton(
               onPressed: loading ? null : login,
               child: loading
@@ -959,6 +1093,24 @@ class _MonitorState extends State<Monitor> {
     _connSub = TelemetryService.instance.connectionStream.listen((status) {
       if (mounted) setState(() => live = status);
     });
+
+    if (!TelemetryService.instance.isConnected) {
+      _autoConnect();
+    }
+  }
+
+  Future<void> _autoConnect() async {
+    await TelemetryService.instance.ensureAuthenticated();
+    final activeId = TelemetryService.instance.activeElderId;
+    if (activeId != null) {
+      await TelemetryService.instance.connectWebSocket(activeId);
+    } else {
+      final elders = await TelemetryService.instance.getElders();
+      if (elders.isNotEmpty) {
+        await TelemetryService.instance.loadInitialData(elders.first.id);
+        await TelemetryService.instance.connectWebSocket(elders.first.id);
+      }
+    }
   }
 
   @override
@@ -969,13 +1121,10 @@ class _MonitorState extends State<Monitor> {
     super.dispose();
   }
 
-  void toggleLive(bool value) {
+  void toggleLive(bool value) async {
     setState(() => live = value);
-    final activeId = TelemetryService.instance.activeElderId;
     if (value) {
-      if (activeId != null) {
-        TelemetryService.instance.connectWebSocket(activeId);
-      }
+      await _autoConnect();
     } else {
       TelemetryService.instance.disconnectWebSocket();
     }

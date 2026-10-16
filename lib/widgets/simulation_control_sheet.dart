@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/telemetry.dart';
 import '../services/telemetry_service.dart';
@@ -26,21 +27,38 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
   String? _loadingScenario;
   List<ElderSummary> _elders = [];
 
+  StreamSubscription<bool>? _connSub;
+
   @override
   void initState() {
     super.initState();
     _loadElders();
+    _connSub = TelemetryService.instance.connectionStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _connSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadElders() async {
+    await TelemetryService.instance.ensureAuthenticated();
     final list = await TelemetryService.instance.getElders();
     if (mounted) {
       setState(() => _elders = list);
+    }
+    if (!TelemetryService.instance.isConnected && list.isNotEmpty) {
+      await TelemetryService.instance.connectWebSocket(list.first.id);
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _trigger(String scenario, String label) async {
     setState(() => _loadingScenario = scenario);
+    await TelemetryService.instance.ensureAuthenticated();
     final ok = await TelemetryService.instance.triggerScenario(scenario);
     if (!mounted) return;
     setState(() => _loadingScenario = null);
@@ -67,7 +85,7 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Gunakan 10.0.2.2:8000 untuk Android Emulator, 127.0.0.1:8000 untuk Desktop/Web/adb reverse, atau IP LAN PC.',
+              'Gunakan 127.0.0.1:8000 untuk USB/adb reverse atau Desktop, 192.168.1.10:8000 untuk Wi-Fi, atau 10.0.2.2:8000 untuk Emulator.',
               style: TextStyle(fontSize: 12, color: Colors.black54),
             ),
             const SizedBox(height: 12),
@@ -82,14 +100,19 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
+              runSpacing: 6,
               children: [
-                ActionChip(
-                  label: const Text('10.0.2.2:8000', style: TextStyle(fontSize: 11)),
-                  onPressed: () => controller.text = '10.0.2.2:8000',
-                ),
                 ActionChip(
                   label: const Text('127.0.0.1:8000', style: TextStyle(fontSize: 11)),
                   onPressed: () => controller.text = '127.0.0.1:8000',
+                ),
+                ActionChip(
+                  label: const Text('192.168.1.10:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '192.168.1.10:8000',
+                ),
+                ActionChip(
+                  label: const Text('10.0.2.2:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '10.0.2.2:8000',
                 ),
               ],
             )
@@ -97,14 +120,29 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal'),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final found = await TelemetryService.instance.probeWorkingHost();
+              await _loadElders();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(found != null
+                        ? 'Backend aktif ditemukan di: $found'
+                        : 'Tidak dapat menemukan backend aktif otomatis.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('Deteksi Otomatis'),
           ),
           ElevatedButton(
             onPressed: () async {
               final newHost = controller.text.trim();
               if (newHost.isNotEmpty) {
                 await TelemetryService.instance.setHost(newHost);
+                await _loadElders();
                 if (mounted) setState(() {});
               }
               if (ctx.mounted) Navigator.pop(ctx);

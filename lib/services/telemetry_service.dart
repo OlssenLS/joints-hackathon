@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,18 +13,15 @@ class TelemetryService {
   }
 
   void _initDefaultHost() {
-    if (!kIsWeb && Platform.isAndroid) {
-      _host = '10.0.2.2:8000';
-    } else {
-      _host = '127.0.0.1:8000';
-    }
+    // Default to 127.0.0.1:8000 which works on Desktop, Web, and Android with adb reverse
+    _host = '127.0.0.1:8000';
     initHostFromPrefs();
   }
 
   Future<void> initHostFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedHost = prefs.getString('sim_backend_host');
+      final savedHost = prefs.getString('sim_backend_host') ?? prefs.getString('custom_host');
       if (savedHost != null && savedHost.trim().isNotEmpty) {
         _host = savedHost.trim();
       }
@@ -53,6 +49,42 @@ class TelemetryService {
     if (isConnected && _activeElderId != null) {
       connectWebSocket(_activeElderId!);
     }
+  }
+
+  /// Checks if a given host responds 200 OK to /health within 1.2 seconds.
+  Future<bool> checkHealth([String? targetHost]) async {
+    final target = targetHost ?? _host;
+    try {
+      final res = await http
+          .get(Uri.parse('http://$target/health'))
+          .timeout(const Duration(milliseconds: 1500));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Probes multiple common endpoints (adb reverse, LAN IP, emulator) and switches to the first responding host.
+  Future<String?> probeWorkingHost() async {
+    if (await checkHealth(_host)) {
+      return _host;
+    }
+
+    final candidates = [
+      '127.0.0.1:8000',
+      '192.168.1.10:8000',
+      '10.0.2.2:8000',
+    ];
+
+    for (final c in candidates) {
+      if (c == _host) continue;
+      if (await checkHealth(c)) {
+        debugPrint('Auto-discovered active simulation backend at: $c');
+        await setHost(c);
+        return c;
+      }
+    }
+    return null;
   }
 
   String get baseUrl => 'http://$_host';
@@ -97,19 +129,31 @@ class TelemetryService {
   Future<void> initSession() async {
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString('auth_token');
-    final savedHost = prefs.getString('custom_host');
+    final savedHost = prefs.getString('sim_backend_host') ?? prefs.getString('custom_host');
     if (savedHost != null && savedHost.isNotEmpty) {
       _host = savedHost;
     }
+    await probeWorkingHost();
+  }
+
+  /// Ensures user is authenticated; auto-logs in with demo caregiver credentials if needed.
+  Future<bool> ensureAuthenticated() async {
+    if (_token != null && _token!.isNotEmpty) return true;
+    return await login('caregiver@demo.id', 'demo1234');
   }
 
   Future<bool> login(String email, String password) async {
+    // Probe working host first if current host doesn't respond
+    if (!await checkHealth(_host)) {
+      await probeWorkingHost();
+    }
+
     try {
       final res = await http.post(
         Uri.parse('$baseUrl/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 4));
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -118,11 +162,31 @@ class TelemetryService {
         await prefs.setString('auth_token', _token!);
         return true;
       }
-      return false;
     } catch (e) {
-      debugPrint('Login error: $e');
-      return false;
+      debugPrint('Login failed on $baseUrl: $e. Probing candidate hosts...');
     }
+
+    // Try probing other candidate hosts on error
+    final fallbackHost = await probeWorkingHost();
+    if (fallbackHost != null && fallbackHost != _host) {
+      try {
+        final res = await http.post(
+          Uri.parse('$baseUrl/auth/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email, 'password': password}),
+        ).timeout(const Duration(seconds: 4));
+
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          _token = data['access_token'];
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('auth_token', _token!);
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    return false;
   }
 
   Future<void> logout() async {
@@ -203,11 +267,20 @@ class TelemetryService {
     }
   }
 
-  void connectWebSocket(String elderId) {
+  Future<void> connectWebSocket(String elderId) async {
     if (_connecting) return;
     _connecting = true;
     _shouldReconnect = true;
     _activeElderId = elderId;
+
+    if (_token == null || _token!.isEmpty) {
+      final ok = await ensureAuthenticated();
+      if (!ok) {
+        _connecting = false;
+        _connectionController.add(false);
+        return;
+      }
+    }
 
     disconnectWebSocket(internal: true);
 
