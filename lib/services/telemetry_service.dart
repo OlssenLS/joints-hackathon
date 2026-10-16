@@ -19,12 +19,37 @@ class TelemetryService {
     } else {
       _host = '127.0.0.1:8000';
     }
+    initHostFromPrefs();
+  }
+
+  Future<void> initHostFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedHost = prefs.getString('sim_backend_host');
+      if (savedHost != null && savedHost.trim().isNotEmpty) {
+        _host = savedHost.trim();
+      }
+    } catch (_) {}
   }
 
   String _host = '127.0.0.1:8000';
   String get host => _host;
   set host(String value) {
-    _host = value;
+    setHost(value);
+  }
+
+  Future<void> setHost(String value) async {
+    final sanitized = value
+        .trim()
+        .replaceAll('http://', '')
+        .replaceAll('https://', '')
+        .replaceAll('ws://', '')
+        .replaceAll('wss://', '');
+    _host = sanitized;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('sim_backend_host', _host);
+    } catch (_) {}
     if (isConnected && _activeElderId != null) {
       connectWebSocket(_activeElderId!);
     }

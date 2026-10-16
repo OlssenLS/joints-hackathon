@@ -56,6 +56,66 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
     Navigator.pop(context);
   }
 
+  void _editBackendHost(BuildContext context) {
+    final controller = TextEditingController(text: TelemetryService.instance.host);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ubah Host Backend', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Gunakan 10.0.2.2:8000 untuk Android Emulator, 127.0.0.1:8000 untuk Desktop/Web/adb reverse, atau IP LAN PC.',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Host:Port',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              children: [
+                ActionChip(
+                  label: const Text('10.0.2.2:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '10.0.2.2:8000',
+                ),
+                ActionChip(
+                  label: const Text('127.0.0.1:8000', style: TextStyle(fontSize: 11)),
+                  onPressed: () => controller.text = '127.0.0.1:8000',
+                ),
+              ],
+            )
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newHost = controller.text.trim();
+              if (newHost.isNotEmpty) {
+                await TelemetryService.instance.setHost(newHost);
+                if (mounted) setState(() {});
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Simpan & Reconnect'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeElder = TelemetryService.instance.activeElder;
@@ -262,9 +322,27 @@ class _SimulationControlSheetState extends State<SimulationControlSheet> {
           ),
           const SizedBox(height: 18),
           Center(
-            child: Text(
-              'Backend: ${TelemetryService.instance.baseUrl}',
-              style: const TextStyle(fontSize: 11, color: Color(0xFF8BA2AB)),
+            child: InkWell(
+              onTap: () => _editBackendHost(context),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Backend: ${TelemetryService.instance.baseUrl}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF627B84),
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.edit_rounded, size: 12, color: Color(0xFF627B84)),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
