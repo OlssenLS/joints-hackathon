@@ -52,8 +52,38 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
   Widget build(BuildContext context) {
     final alert = widget.alert;
     final isCritical = alert.isCritical || alert.isFall || alert.isSos;
-    final primaryColor =
-        isCritical ? const Color(0xFFE95858) : const Color(0xFFF5A524);
+    final isWarning = alert.severity == 'warning' || (!isCritical && alert.severity != 'info');
+    final primaryColor = isCritical
+        ? const Color(0xFFE95858)
+        : (isWarning ? const Color(0xFFF5A524) : const Color(0xFF176E9E));
+    final badgeLabel = isCritical
+        ? 'PERINGATAN KRITIS'
+        : (isWarning ? 'PERHATIAN KESEHATAN' : 'INFORMASI KESEHATAN');
+
+    IconData alertIcon;
+    if (alert.isFall) {
+      alertIcon = Icons.personal_injury_rounded;
+    } else if (alert.isSos) {
+      alertIcon = Icons.sos_rounded;
+    } else if (alert.type.contains('hr_') ||
+        alert.type.contains('tachycardia') ||
+        alert.type.contains('bradycardia')) {
+      alertIcon = Icons.monitor_heart_rounded;
+    } else if (alert.type.contains('spo2') || alert.type.contains('hypoxia')) {
+      alertIcon = Icons.air_rounded;
+    } else if (alert.type.contains('temp') || alert.type.contains('fever')) {
+      alertIcon = Icons.thermostat_rounded;
+    } else if (alert.type.contains('bp') || alert.type.contains('hypertensive')) {
+      alertIcon = Icons.speed_rounded;
+    } else if (alert.type.contains('glucose') ||
+        alert.type.contains('hypoglycemia')) {
+      alertIcon = Icons.water_drop_rounded;
+    } else if (alert.type.contains('geofence') || alert.type.contains('wander')) {
+      alertIcon = Icons.location_off_rounded;
+    } else {
+      alertIcon = isCritical ? Icons.warning_rounded : Icons.warning_amber_rounded;
+    }
+
     final elder = TelemetryService.instance.activeElder;
     final elderName = elder?.name ?? 'Lansia Tersayang';
 
@@ -77,11 +107,7 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
                   border: Border.all(color: primaryColor, width: 2.5),
                 ),
                 child: Icon(
-                  alert.isFall
-                      ? Icons.personal_injury_rounded
-                      : alert.isSos
-                      ? Icons.sos_rounded
-                      : Icons.warning_rounded,
+                  alertIcon,
                   color: primaryColor,
                   size: 42,
                 ),
@@ -95,7 +121,7 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                isCritical ? 'PERINGATAN KRITIS' : 'PERINGATAN KESEHATAN',
+                badgeLabel,
                 style: TextStyle(
                   color: primaryColor,
                   fontWeight: FontWeight.w800,

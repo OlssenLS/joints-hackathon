@@ -649,9 +649,7 @@ class _ShellState extends State<Shell> {
     super.initState();
     _alertSub = TelemetryService.instance.alertsStream.listen((alert) {
       if (!mounted) return;
-      if (alert.isCritical || alert.isFall || alert.isSos) {
-        showEmergencyDialog(context, alert);
-      }
+      showEmergencyDialog(context, alert);
     });
   }
 
