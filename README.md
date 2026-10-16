@@ -1,17 +1,22 @@
-# hackathon_project
+# LanSIAP
 
-A new Flutter project.
+Prototype Flutter responsif untuk pendampingan lansia dan keluarga. Alurnya mengikuti sitemap dan user flow JOINTS: onboarding, dua peran, beranda pendamping, jadwal obat, pemantauan vital, alert, dokumen, laporan, dan mode lansia.
 
-## Getting Started
+Visual LanSIAP memakai ilustrasi editorial orisinal, biru langit, teal gelap, dan aksen aprikot. Ilustrasi utama dibuat khusus untuk project ini dan tersimpan di `assets/images/care_family_editorial.png`.
 
-This project is a starting point for a Flutter application.
+## Menjalankan di VS Code
 
-A few resources to get you started if this is your first Flutter project:
+1. Pasang Flutter SDK serta extension **Flutter** dan **Dart**.
+2. Buka folder ini (folder yang berisi `pubspec.yaml`).
+3. Jalankan `flutter pub get`.
+4. Pilih device di status bar VS Code.
+5. Tekan `F5`, atau jalankan `flutter run -d chrome`.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Struktur
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `lib/main.dart`: tema, onboarding, navigasi, jadwal, monitor, dokumen, laporan, dan mode lansia.
+- `lib/creative_home.dart`: beranda pendamping dan interaksi tugas obat.
+- `assets/`: ilustrasi dan font yang dipaketkan lokal.
+- `android/`, `ios/`, `web/`: target platform Flutter.
+
+Data vital dan akun saat ini adalah demo lokal. Tambah kegiatan dan konfirmasi obat aktif selama sesi aplikasi; data tersebut belum tersimpan setelah aplikasi ditutup. Panggilan telepon dan SOS saat ini berupa alur konfirmasi demo, belum terhubung ke perangkat atau layanan darurat.
