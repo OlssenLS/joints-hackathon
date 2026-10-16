@@ -14,8 +14,8 @@ class TelemetryService {
   }
 
   void _initDefaultHost() {
-    // Default to 127.0.0.1:8000 which works on Desktop, Web, and Android with adb reverse
-    _host = '127.0.0.1:8000';
+    // Default to the computer's LAN IP so standalone mobile apps connect over Wi-Fi without USB
+    _host = kIsWeb ? '127.0.0.1:8000' : '192.168.1.10:8000';
     initHostFromPrefs();
   }
 
@@ -29,7 +29,7 @@ class TelemetryService {
     } catch (_) {}
   }
 
-  String _host = '127.0.0.1:8000';
+  String _host = '192.168.1.10:8000';
   String get host => _host;
   set host(String value) {
     setHost(value);
@@ -65,15 +65,15 @@ class TelemetryService {
     }
   }
 
-  /// Probes multiple common endpoints (adb reverse, LAN IP, emulator) and switches to the first responding host.
+  /// Probes multiple common endpoints (LAN IP, adb reverse, emulator) and switches to the first responding host.
   Future<String?> probeWorkingHost() async {
     if (await checkHealth(_host)) {
       return _host;
     }
 
     final candidates = [
-      '127.0.0.1:8000',
       '192.168.1.10:8000',
+      '127.0.0.1:8000',
       '10.0.2.2:8000',
     ];
 
