@@ -362,6 +362,97 @@ class Onboarding extends StatelessWidget {
   );
 }
 
+void showServerConfigDialog(BuildContext context, [VoidCallback? onUpdated]) {
+  final controller = TextEditingController(text: TelemetryService.instance.host);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Row(
+        children: [
+          Icon(Icons.dns_rounded, color: C.primary, size: 22),
+          SizedBox(width: 8),
+          Text('Koneksi Simulation Engine', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Masukkan IP/Host Simulation Engine (komputer Anda):',
+            style: TextStyle(fontSize: 12, color: C.muted),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: 'Host / IP:Port',
+              hintText: '192.168.1.10:8000',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              isDense: true,
+              prefixIcon: const Icon(Icons.wifi_rounded, size: 20),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Pilihan Cepat:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: C.ink)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              ActionChip(
+                label: const Text('192.168.1.10:8000 (Wi-Fi LAN)', style: TextStyle(fontSize: 11)),
+                onPressed: () => controller.text = '192.168.1.10:8000',
+              ),
+              ActionChip(
+                label: const Text('127.0.0.1:8000 (USB adb)', style: TextStyle(fontSize: 11)),
+                onPressed: () => controller.text = '127.0.0.1:8000',
+              ),
+              ActionChip(
+                label: const Text('10.0.2.2:8000 (Emulator)', style: TextStyle(fontSize: 11)),
+                onPressed: () => controller.text = '10.0.2.2:8000',
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            final found = await TelemetryService.instance.probeWorkingHost();
+            onUpdated?.call();
+            if (context.mounted) {
+              msg(context, found != null ? 'Terhubung ke $found' : 'Backend belum terdeteksi aktif.');
+            }
+          },
+          child: const Text('Deteksi Otomatis'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: C.primary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          onPressed: () async {
+            final newHost = controller.text.trim();
+            if (newHost.isNotEmpty) {
+              await TelemetryService.instance.setHost(newHost);
+              final ok = await TelemetryService.instance.checkHealth();
+              onUpdated?.call();
+              if (context.mounted) {
+                msg(context, ok ? 'Berhasil terhubung ke $newHost!' : 'Tersimpan, namun belum ada respon dari $newHost.');
+              }
+            }
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
+          child: const Text('Simpan & Cek'),
+        ),
+      ],
+    ),
+  );
+}
+
 class Access extends StatefulWidget {
   const Access({super.key});
   @override
@@ -392,77 +483,7 @@ class _AccessState extends State<Access> {
     }
   }
 
-  void _editHostDialog(BuildContext context) {
-    final controller = TextEditingController(text: TelemetryService.instance.host);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Koneksi Server Simulation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Pilih alamat backend simulation engine sesuai konfigurasi Anda:',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Host:Port',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                ActionChip(
-                  label: const Text('127.0.0.1:8000', style: TextStyle(fontSize: 11)),
-                  onPressed: () => controller.text = '127.0.0.1:8000',
-                ),
-                ActionChip(
-                  label: const Text('192.168.1.10:8000', style: TextStyle(fontSize: 11)),
-                  onPressed: () => controller.text = '192.168.1.10:8000',
-                ),
-                ActionChip(
-                  label: const Text('10.0.2.2:8000', style: TextStyle(fontSize: 11)),
-                  onPressed: () => controller.text = '10.0.2.2:8000',
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final found = await TelemetryService.instance.probeWorkingHost();
-              await _checkServer();
-              if (context.mounted) {
-                msg(context, found != null ? 'Terhubung ke $found' : 'Backend belum terdeteksi aktif.');
-              }
-            },
-            child: const Text('Deteksi Otomatis'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newHost = controller.text.trim();
-              if (newHost.isNotEmpty) {
-                await TelemetryService.instance.setHost(newHost);
-                await _checkServer();
-              }
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Simpan & Cek'),
-          ),
-        ],
-      ),
-    );
-  }
+  void _editHostDialog(BuildContext context) => showServerConfigDialog(context, _checkServer);
 
   Future<void> login() async {
     if (email.text.isEmpty || pass.text.isEmpty) {
@@ -1429,8 +1450,9 @@ class _ProfileState extends State<Profile> {
               right: 18,
               child: IconButton.filled(
                 style: IconButton.styleFrom(backgroundColor: Colors.white24),
-                onPressed: () =>
-                    msg(context, 'Pengaturan profil siap digunakan.'),
+                onPressed: () => showServerConfigDialog(context, () {
+                  if (mounted) setState(() {});
+                }),
                 icon: const Icon(Icons.settings, color: Colors.white),
               ),
             ),
