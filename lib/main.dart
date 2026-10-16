@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'creative_home.dart';
 import 'models/telemetry.dart';
 import 'services/telemetry_service.dart';
@@ -1896,80 +1897,606 @@ class Documents extends StatelessWidget {
   }
 }
 
-class Reports extends StatelessWidget {
+class Reports extends StatefulWidget {
   const Reports({super.key});
   @override
-  Widget build(BuildContext context) => SubPage(
-    'Laporan Kesehatan',
-    ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Text(
-          'Ringkasan Januari',
-          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
-        ),
-        const Text('Insight otomatis dari data kesehatan Nenek Yenti.'),
-        const SizedBox(height: 19),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [C.dark, C.primary]),
-            borderRadius: BorderRadius.circular(23),
-          ),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  State<Reports> createState() => _ReportsState();
+}
+
+class _ReportsState extends State<Reports> {
+  bool _isLoading = false;
+  bool _isInitialLoading = true;
+  int _selectedDays = 7;
+  Map<String, dynamic>? _currentReport;
+  List<Map<String, dynamic>> _historyReports = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    final list = await TelemetryService.instance.fetchReports();
+    if (!mounted) return;
+    setState(() {
+      _historyReports = list;
+    });
+
+    if (list.isNotEmpty) {
+      final latestId = list.first['id'] as String;
+      final detail = await TelemetryService.instance.getReportDetail(latestId);
+      if (mounted) {
+        setState(() {
+          _currentReport = detail;
+          _isInitialLoading = false;
+        });
+      }
+    } else {
+      setState(() {
+        _isInitialLoading = false;
+      });
+    }
+  }
+
+  Future<void> _generateReport() async {
+    setState(() => _isLoading = true);
+    final report = await TelemetryService.instance.generateSmartReport(days: _selectedDays);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (report != null) {
+        _currentReport = report;
+      }
+    });
+
+    // Refresh history
+    final list = await TelemetryService.instance.fetchReports();
+    if (mounted) {
+      setState(() => _historyReports = list);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
             children: [
-              Icon(Icons.auto_awesome, color: Colors.white),
-              SizedBox(height: 12),
-              Text(
-                'Kondisi secara umum stabil',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Kepatuhan obat meningkat 8% dan tekanan darah berada pada rentang aman selama 6 hari terakhir.',
-                style: TextStyle(color: Colors.white70),
-              ),
+              const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(report != null
+                  ? 'Laporan AI $_selectedDays hari berhasil digenerate!'
+                  : 'Gagal membuat laporan AI. Silakan coba lagi.'),
             ],
           ),
+          backgroundColor: report != null ? C.green : C.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
-        const SizedBox(height: 17),
-        const Row(
+      );
+    }
+  }
+
+  void _copyToClipboard(String content) {
+    Clipboard.setData(ClipboardData(text: content));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
           children: [
-            Expanded(child: Stat('96%', 'Kepatuhan obat', Icons.medication)),
-            SizedBox(width: 12),
-            Expanded(
-              child: Stat('128/78', 'Rata-rata tensi', Icons.monitor_heart),
-            ),
+            Icon(Icons.copy_rounded, color: Colors.white, size: 18),
+            SizedBox(width: 8),
+            Text('Teks laporan disalin! Siap dikirim ke WhatsApp dokter/keluarga.'),
           ],
         ),
-        const SizedBox(height: 17),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        backgroundColor: C.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _showDownloadDialog(BuildContext context, String reportId) {
+    final url = TelemetryService.instance.getReportDownloadUrl(reportId);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                const Text(
-                  'Tren tekanan darah',
-                  style: TextStyle(fontWeight: FontWeight.w800),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: C.sky,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.picture_as_pdf_rounded, color: C.primary, size: 24),
                 ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  height: 125,
-                  child: CustomPaint(painter: Trend(), size: Size.infinite),
+                const SizedBox(width: 12),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Unduh Lembar Medis Resmi',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text('Format dokumen siap cetak / PDF standar klinik',
+                        style: TextStyle(fontSize: 12, color: C.muted)),
+                  ],
                 ),
               ],
             ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.link_rounded, color: C.muted, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      url,
+                      style: const TextStyle(fontSize: 11, color: C.ink, fontFamily: 'monospace'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Clipboard.setData(ClipboardData(text: url));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Tautan dokumen PDF/Cetak berhasil disalin!'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    label: const Text('Salin Tautan', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: C.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _copyToClipboard(_currentReport?['content_md'] ?? '');
+                    },
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Bagikan Teks', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHistorySheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Riwayat Laporan Kesehatan',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            if (_historyReports.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('Belum ada riwayat laporan.', style: TextStyle(color: C.muted)),
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 300),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _historyReports.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final item = _historyReports[i];
+                    final rId = item['id'] as String;
+                    final isCurrent = _currentReport?['id'] == rId;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: isCurrent ? C.primary : const Color(0xFFF1F5F9),
+                        child: Icon(
+                          Icons.description_outlined,
+                          color: isCurrent ? Colors.white : C.muted,
+                          size: 18,
+                        ),
+                      ),
+                      title: Text(
+                        'Laporan ${item['created_at']?.toString().substring(0, 10) ?? ''}',
+                        style: TextStyle(
+                          fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                          color: isCurrent ? C.primary : C.ink,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Metode: ${item['generated_by']?.toString().toUpperCase() ?? 'AI'}',
+                        style: const TextStyle(fontSize: 11, color: C.muted),
+                      ),
+                      trailing: isCurrent
+                          ? const Pill('Aktif', C.green)
+                          : const Icon(Icons.chevron_right, size: 18),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        final detail = await TelemetryService.instance.getReportDetail(rId);
+                        if (mounted && detail != null) {
+                          setState(() => _currentReport = detail);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = _currentReport?['stats_json'] as Map<String, dynamic>?;
+    final contentMd = _currentReport?['content_md'] as String?;
+    final reportId = _currentReport?['id'] as String?;
+    final generatedBy = _currentReport?['generated_by'] as String? ?? 'LLM';
+
+    final hrStats = stats?['heart_rate'] as Map<String, dynamic>?;
+    final bpStats = stats?['blood_pressure'] as Map<String, dynamic>?;
+    final medStats = stats?['medication'] as Map<String, dynamic>?;
+    final spo2Stats = stats?['spo2'] as Map<String, dynamic>?;
+
+    final hrAvg = hrStats?['avg']?.toString() ?? '74';
+    final bpAvg = bpStats?['avg']?.toString() ?? '132/84';
+    final medAdh = medStats?['adherence_pct']?.toString() ?? '92';
+    final spo2Avg = spo2Stats?['avg']?.toString() ?? '97';
+
+    return SubPage(
+      'Laporan Kesehatan AI',
+      _isInitialLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                // Top Generator Banner
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0F4C68), Color(0xFF1E7EAB)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: C.primary.withValues(alpha: 0.25),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.auto_awesome, color: Colors.amberAccent, size: 14),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Groq LLaMA / Qwen AI Engine',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_historyReports.isNotEmpty)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => _showHistorySheet(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.history_rounded, color: Colors.white70, size: 14),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${_historyReports.length} Laporan',
+                                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Ringkasan Cerdas Klinis',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'AI mengagregasi ribuan data telemetri, ritme jantung, tekanan darah, dan obat untuk menghasilkan laporan siap dokter.',
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 16),
+                      // Day selector
+                      Row(
+                        children: [
+                          _buildDayChip(7, '7 Hari Terakhir'),
+                          const SizedBox(width: 8),
+                          _buildDayChip(14, '14 Hari Terakhir'),
+                          const SizedBox(width: 8),
+                          _buildDayChip(30, '30 Hari'),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: C.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          onPressed: _isLoading ? null : _generateReport,
+                          icon: _isLoading
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: C.primary),
+                                )
+                              : const Icon(Icons.bolt_rounded, size: 20),
+                          label: Text(
+                            _isLoading ? 'Groq AI Menganalisis Data...' : 'Generate Laporan AI Baru',
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                if (_currentReport != null) ...[
+                  // Report Document Action Bar
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () => _copyToClipboard(contentMd ?? ''),
+                          icon: const Icon(Icons.copy_rounded, size: 16),
+                          label: const Text('Salin Teks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: C.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: () {
+                            if (reportId != null) {
+                              _showDownloadDialog(context, reportId);
+                            }
+                          },
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                          label: const Text('Unduh Dokumen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 4 Biometrics Matrix Cards
+                  Row(
+                    children: [
+                      Expanded(child: Stat('$hrAvg bpm', 'Detak Jantung Rata-rata', Icons.favorite_rounded)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Stat('$bpAvg mmHg', 'Tensi Darah', Icons.speed_rounded)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(child: Stat('$medAdh%', 'Kepatuhan Obat', Icons.medication_rounded)),
+                      const SizedBox(width: 10),
+                      Expanded(child: Stat('$spo2Avg%', 'Oksigen SpO2', Icons.air_rounded)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Full Narrative AI Report Card
+                  Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                      side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: C.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.analytics_outlined, color: C.primary, size: 18),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Analisis Naratif Hasil AI',
+                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                                ),
+                              ),
+                              Pill('Metode: ${generatedBy.toUpperCase()}', C.green),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                          Text(
+                            contentMd ?? 'Laporan belum tersedia.',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.6,
+                              color: Color(0xFF334155),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFFEF3C7)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.info_outline_rounded, color: Color(0xFF92400E), size: 16),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Laporan otomatis berbasis telemetri IoT & AI. Gunakan sebagai bahan konsultasi dengan dokter.',
+                                    style: TextStyle(fontSize: 11, color: Color(0xFF92400E), fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(Icons.description_outlined, color: C.muted, size: 48),
+                          SizedBox(height: 12),
+                          Text(
+                            'Belum Ada Laporan Terbuat',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Tekan tombol di atas untuk menganalisis data kesehatan Nenek Yenti dengan AI.',
+                            style: TextStyle(color: C.muted, fontSize: 12),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+      action: _currentReport != null
+          ? IconButton(
+              tooltip: 'Riwayat Laporan',
+              onPressed: () => _showHistorySheet(context),
+              icon: const Icon(Icons.history_rounded),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildDayChip(int days, String label) {
+    final selected = _selectedDays == days;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => setState(() => _selectedDays = days),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? C.primary : Colors.white,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class Trend extends CustomPainter {

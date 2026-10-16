@@ -519,14 +519,54 @@ class TelemetryService {
       final res = await http.post(
         Uri.parse('$baseUrl/elders/$elderId/reports/generate?days=$days'),
         headers: {'Authorization': 'Bearer $_token'},
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 25));
 
-      if (res.statusCode == 200) {
-        return jsonDecode(res.body);
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
       }
     } catch (e) {
       debugPrint('Error generating report: $e');
     }
     return null;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchReports() async {
+    final elderId = _activeElderId;
+    if (elderId == null || _token == null) return [];
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/elders/$elderId/reports'),
+        headers: {'Authorization': 'Bearer $_token'},
+      ).timeout(const Duration(seconds: 6));
+
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body) as List;
+        return list.map((e) => e as Map<String, dynamic>).toList();
+      }
+    } catch (e) {
+      debugPrint('Error fetching reports: $e');
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>?> getReportDetail(String reportId) async {
+    if (_token == null) return null;
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/reports/$reportId'),
+        headers: {'Authorization': 'Bearer $_token'},
+      ).timeout(const Duration(seconds: 6));
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      debugPrint('Error fetching report detail: $e');
+    }
+    return null;
+  }
+
+  String getReportDownloadUrl(String reportId, {String format = 'html'}) {
+    return '$baseUrl/reports/$reportId/download?format=$format';
   }
 }
