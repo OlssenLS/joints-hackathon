@@ -2102,8 +2102,10 @@ class _ReportsState extends State<Reports> {
                 Expanded(
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      minimumSize: const Size.fromHeight(48),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
@@ -2116,7 +2118,7 @@ class _ReportsState extends State<Reports> {
                       );
                     },
                     icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: const Text('Salin Tautan', style: TextStyle(fontWeight: FontWeight.w700)),
+                    label: const Text('Salin Tautan', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -2124,15 +2126,16 @@ class _ReportsState extends State<Reports> {
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: C.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      minimumSize: const Size.fromHeight(48),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       _copyToClipboard(_cleanRepetitiveReportText(_currentReport?['content_md']));
                     },
                     icon: const Icon(Icons.share_rounded, size: 18),
-                    label: const Text('Bagikan Teks', style: TextStyle(fontWeight: FontWeight.w700)),
+                    label: const Text('Bagikan Teks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                   ),
                 ),
               ],
@@ -2374,12 +2377,14 @@ class _ReportsState extends State<Reports> {
                       Expanded(
                         child: OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
                           ),
                           onPressed: () => _copyToClipboard(_cleanRepetitiveReportText(contentMd)),
-                          icon: const Icon(Icons.copy_rounded, size: 16),
-                          label: const Text('Salin Teks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                          icon: const Icon(Icons.copy_rounded, size: 18),
+                          label: const Text('Salin Teks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -2387,7 +2392,8 @@ class _ReportsState extends State<Reports> {
                         child: FilledButton.icon(
                           style: FilledButton.styleFrom(
                             backgroundColor: C.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           onPressed: () {
@@ -2395,8 +2401,8 @@ class _ReportsState extends State<Reports> {
                               _showDownloadDialog(context, reportId);
                             }
                           },
-                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
-                          label: const Text('Unduh Dokumen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                          label: const Text('Unduh Dokumen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
                         ),
                       ),
                     ],
