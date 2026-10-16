@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'models/telemetry.dart';
+import 'services/telemetry_service.dart';
 
 /// Home experience for the caregiver demo. Actions are supplied by the shell.
 class CreativeHome extends StatefulWidget {
@@ -25,6 +28,21 @@ class CreativeHome extends StatefulWidget {
 
 class _CreativeHomeState extends State<CreativeHome> {
   bool medicineTaken = false;
+  StreamSubscription<AlertItem>? _alertsSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _alertsSub = TelemetryService.instance.alertsStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertsSub?.cancel();
+    super.dispose();
+  }
 
   static const ink = Color(0xFF123D4F);
   static const blue = Color(0xFF176E9E);
@@ -70,6 +88,7 @@ class _CreativeHomeState extends State<CreativeHome> {
 
   void toggleMedicine() {
     setState(() => medicineTaken = !medicineTaken);
+    final elderName = TelemetryService.instance.activeElder?.name ?? 'Pak Budi';
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -77,7 +96,7 @@ class _CreativeHomeState extends State<CreativeHome> {
           behavior: SnackBarBehavior.floating,
           content: Text(
             medicineTaken
-                ? 'Obat pagi tercatat. Terima kasih sudah menjaga Nenek Yenti.'
+                ? 'Obat pagi tercatat. Terima kasih sudah menjaga $elderName.'
                 : 'Konfirmasi obat pagi dibatalkan.',
           ),
         ),
@@ -86,6 +105,10 @@ class _CreativeHomeState extends State<CreativeHome> {
 
   @override
   Widget build(BuildContext context) {
+    final unackCount = TelemetryService.instance.currentAlerts
+        .where((a) => !a.acknowledged)
+        .length;
+
     return ColoredBox(
       color: const Color(0xFFF7FBFC),
       child: CustomScrollView(
@@ -113,7 +136,7 @@ class _CreativeHomeState extends State<CreativeHome> {
                             ),
                             const SizedBox(height: 5),
                             Text(
-                              '$greeting, Dinda',
+                              '$greeting, Pendamping',
                               style: const TextStyle(
                                 fontSize: 23,
                                 fontWeight: FontWeight.w800,
@@ -125,7 +148,7 @@ class _CreativeHomeState extends State<CreativeHome> {
                         ),
                       ),
                       Semantics(
-                        label: 'Pusat peringatan, dua peringatan',
+                        label: 'Pusat peringatan',
                         button: true,
                         child: IconButton.filledTonal(
                           onPressed: widget.onAlerts,
@@ -134,14 +157,18 @@ class _CreativeHomeState extends State<CreativeHome> {
                             foregroundColor: blue,
                             minimumSize: const Size(48, 48),
                           ),
-                          icon: const Badge(
-                            label: Text('2'),
-                            child: Icon(Icons.notifications_none_rounded),
-                          ),
+                          icon: unackCount > 0
+                              ? Badge(
+                                  label: Text('$unackCount'),
+                                  child: const Icon(
+                                      Icons.notifications_none_rounded),
+                                )
+                              : const Icon(Icons.notifications_none_rounded),
                         ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 23),
                   _HeroCard(onTap: widget.onMonitor),
                   const SizedBox(height: 30),
@@ -260,110 +287,125 @@ class _HeroCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(28),
-      child: Ink(
-        height: 240,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFE6F6F8), Color(0xFFB4E0E8)],
+  Widget build(BuildContext context) {
+    final elder = TelemetryService.instance.activeElder;
+    final elderName = elder?.name ?? 'Pak Budi';
+    final hasWarning = TelemetryService.instance.currentAlerts.any(
+        (a) => !a.acknowledged && (a.isCritical || a.isFall || a.severity == 'warning'));
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(28),
+        child: Ink(
+          height: 240,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFE6F6F8), Color(0xFFB4E0E8)],
+            ),
           ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -35,
-              top: -70,
-              child: Container(
-                width: 210,
-                height: 210,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0x66FFFFFF),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -35,
+                top: -70,
+                child: Container(
+                  width: 210,
+                  height: 210,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0x66FFFFFF),
+                  ),
                 ),
               ),
-            ),
-            Positioned(
-              right: -16,
-              bottom: -27,
-              width: 218,
-              height: 238,
-              child: Image.asset(
-                'assets/images/care_family_editorial.png',
-                fit: BoxFit.contain,
-                alignment: Alignment.bottomRight,
+              Positioned(
+                right: -16,
+                bottom: -27,
+                width: 218,
+                height: 238,
+                child: Image.asset(
+                  'assets/images/care_family_editorial.png',
+                  fit: BoxFit.contain,
+                  alignment: Alignment.bottomRight,
+                ),
               ),
-            ),
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(22),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .88),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.circle, color: Color(0xFF52AD87), size: 8),
-                          SizedBox(width: 7),
-                          Text(
-                            'KONDISI STABIL',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.1,
-                              color: Color(0xFF296B54),
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .88),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              color: hasWarning
+                                  ? const Color(0xFFE95858)
+                                  : const Color(0xFF52AD87),
+                              size: 8,
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(),
-                    const SizedBox(
-                      width: 180,
-                      child: Text(
-                        'Nenek Yenti\nbaik hari ini.',
-                        style: TextStyle(
-                          fontSize: 23,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                          letterSpacing: -.6,
-                          color: Color(0xFF123D4F),
+                            const SizedBox(width: 7),
+                            Text(
+                              hasWarning ? 'PERLU PERIKSA' : 'KONDISI STABIL',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.1,
+                                color: hasWarning
+                                    ? const Color(0xFFC0392B)
+                                    : const Color(0xFF296B54),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 7),
-                    const Text(
-                      'Lihat ringkasan  ↗',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF176E9E),
-                        fontWeight: FontWeight.w800,
+                      const Spacer(),
+                      SizedBox(
+                        width: 180,
+                        child: Text(
+                          '$elderName\n${hasWarning ? 'butuh dicek.' : 'baik hari ini.'}',
+                          style: const TextStyle(
+                            fontSize: 23,
+                            fontWeight: FontWeight.w800,
+                            height: 1.2,
+                            letterSpacing: -.6,
+                            color: Color(0xFF123D4F),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 7),
+                      const Text(
+                        'Lihat ringkasan  ↗',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF176E9E),
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _MedicineCard extends StatelessWidget {
@@ -371,71 +413,76 @@ class _MedicineCard extends StatelessWidget {
   final bool done;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(22),
-    child: InkWell(
-      onTap: onTap,
+  Widget build(BuildContext context) {
+    final elderName = TelemetryService.instance.activeElder?.name ?? 'Pak Budi';
+
+    return Material(
+      color: Colors.white,
       borderRadius: BorderRadius.circular(22),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.all(17),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: done ? const Color(0xFFA8DDC2) : const Color(0xFFE2EDF0),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.all(17),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: done ? const Color(0xFFA8DDC2) : const Color(0xFFE2EDF0),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 53,
+                height: 53,
+                decoration: BoxDecoration(
+                  color: done
+                      ? const Color(0xFFE5F6EC)
+                      : _CreativeHomeState.apricot,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  done ? Icons.check_rounded : Icons.medication_rounded,
+                  color: done
+                      ? const Color(0xFF2B925D)
+                      : _CreativeHomeState.coral,
+                  size: 27,
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      done ? 'Obat pagi selesai' : 'Obat pagi $elderName',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: _CreativeHomeState.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Amlodipine 5 mg · 08.00',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF68818A)),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                done ? Icons.undo_rounded : Icons.arrow_forward_rounded,
+                color: _CreativeHomeState.blue,
+              ),
+            ],
           ),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 53,
-              height: 53,
-              decoration: BoxDecoration(
-                color: done
-                    ? const Color(0xFFE5F6EC)
-                    : _CreativeHomeState.apricot,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(
-                done ? Icons.check_rounded : Icons.medication_rounded,
-                color: done
-                    ? const Color(0xFF2B925D)
-                    : _CreativeHomeState.coral,
-                size: 27,
-              ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    done ? 'Obat pagi selesai' : 'Obat pagi Nenek Yenti',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: _CreativeHomeState.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Amlodipine 5 mg · 08.00',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF68818A)),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              done ? Icons.undo_rounded : Icons.arrow_forward_rounded,
-              color: _CreativeHomeState.blue,
-            ),
-          ],
-        ),
       ),
-    ),
-  );
+    );
+  }
 }
+
 
 class _ActionTile extends StatelessWidget {
   const _ActionTile({

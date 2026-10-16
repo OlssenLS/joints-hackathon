@@ -1,8 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'creative_home.dart';
+import 'models/telemetry.dart';
+import 'services/telemetry_service.dart';
+import 'widgets/emergency_alert_dialog.dart';
+import 'widgets/simulation_control_sheet.dart';
 
-void main() => runApp(const LanSiapApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await TelemetryService.instance.initSession();
+  runApp(const LanSiapApp());
+}
 
 abstract final class C {
   static const primary = Color(0xFF176E9E),
@@ -361,15 +369,39 @@ class Access extends StatefulWidget {
 }
 
 class _AccessState extends State<Access> {
-  final email = TextEditingController(text: 'keluarga@lansiap.id'),
-      pass = TextEditingController(text: 'lansiap123');
+  final email = TextEditingController(text: 'caregiver@demo.id'),
+      pass = TextEditingController(text: 'demo1234');
   bool hidden = true;
-  void login() {
+  bool loading = false;
+
+  Future<void> login() async {
     if (email.text.isEmpty || pass.text.isEmpty) {
       msg(context, 'Lengkapi email dan kata sandi dulu.');
       return;
     }
-    Navigator.pushReplacement(context, fade(const Shell()));
+
+    setState(() => loading = true);
+    final ok = await TelemetryService.instance.login(
+      email.text.trim(),
+      pass.text.trim(),
+    );
+
+    if (ok) {
+      final elders = await TelemetryService.instance.getElders();
+      if (elders.isNotEmpty) {
+        await TelemetryService.instance.loadInitialData(elders.first.id);
+        TelemetryService.instance.connectWebSocket(elders.first.id);
+      }
+    } else {
+      if (mounted) {
+        msg(context, 'Masuk mode offline demo (backend belum aktif).');
+      }
+    }
+
+    if (mounted) {
+      setState(() => loading = false);
+      Navigator.pushReplacement(context, fade(const Shell()));
+    }
   }
 
   @override
@@ -431,8 +463,17 @@ class _AccessState extends State<Access> {
               ),
             ),
             FilledButton(
-              onPressed: login,
-              child: const Text('Masuk sebagai Pendamping'),
+              onPressed: loading ? null : login,
+              child: loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Masuk sebagai Pendamping'),
             ),
             const SizedBox(height: 13),
             OutlinedButton.icon(
@@ -467,6 +508,42 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int index = 0;
+  StreamSubscription<AlertItem>? _alertSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _alertSub = TelemetryService.instance.alertsStream.listen((alert) {
+      if (!mounted) return;
+      if (alert.isCritical || alert.isFall || alert.isSos) {
+        showEmergencyDialog(context, alert);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.orange,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(alert.message)),
+              ],
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertSub?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -485,6 +562,17 @@ class _ShellState extends State<Shell> {
     return Frame(
       child: Scaffold(
         body: IndexedStack(index: index, children: pages),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => showSimulationSheet(context),
+          backgroundColor: C.primary,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          icon: const Icon(Icons.tune_rounded),
+          label: const Text(
+            'Simulasi',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: index,
           height: 72,
@@ -518,6 +606,7 @@ class _ShellState extends State<Shell> {
     );
   }
 }
+
 
 class Section extends StatelessWidget {
   const Section(this.title, {super.key, this.action});
@@ -850,164 +939,277 @@ class Monitor extends StatefulWidget {
 
 class _MonitorState extends State<Monitor> {
   bool live = true;
+  StreamSubscription<VitalsData>? _vitalsSub;
+  StreamSubscription<MeasurementData>? _measSub;
+  StreamSubscription<bool>? _connSub;
+  VitalsData vitals = TelemetryService.instance.latestVitals;
+  MeasurementData? bp = TelemetryService.instance.latestBp;
+
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: EdgeInsets.zero,
-    children: [
-      Container(
-        padding: const EdgeInsets.fromLTRB(22, 48, 22, 31),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(colors: [C.dark, C.primary, C.blue]),
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(38)),
+  void initState() {
+    super.initState();
+    live = TelemetryService.instance.isConnected;
+    _vitalsSub = TelemetryService.instance.vitalsStream.listen((data) {
+      if (mounted) setState(() => vitals = data);
+    });
+    _measSub = TelemetryService.instance.measurementStream.listen((data) {
+      if (mounted && data.kind == 'bp') setState(() => bp = data);
+    });
+    _connSub = TelemetryService.instance.connectionStream.listen((status) {
+      if (mounted) setState(() => live = status);
+    });
+  }
+
+  @override
+  void dispose() {
+    _vitalsSub?.cancel();
+    _measSub?.cancel();
+    _connSub?.cancel();
+    super.dispose();
+  }
+
+  void toggleLive(bool value) {
+    setState(() => live = value);
+    final activeId = TelemetryService.instance.activeElderId;
+    if (value) {
+      if (activeId != null) {
+        TelemetryService.instance.connectWebSocket(activeId);
+      }
+    } else {
+      TelemetryService.instance.disconnectWebSocket();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elder = TelemetryService.instance.activeElder;
+    final elderName = elder?.name ?? 'Pak Budi';
+    final hasWarning =
+        vitals.isTachycardia || vitals.isBradycardia || vitals.isHypoxia || vitals.isFever;
+    final unackAlerts =
+        TelemetryService.instance.currentAlerts.where((a) => !a.acknowledged).length;
+
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(22, 48, 22, 31),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [C.dark, C.primary, C.blue]),
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(38)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Halo, Pendamping 👋',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      live
+                          ? 'Streaming live dari Simulation Engine'
+                          : 'Pemantauan langsung dijeda',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: live,
+                onChanged: toggleLive,
+                activeThumbColor: Colors.white,
+              ),
+            ],
+          ),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Section('Tanda-Tanda Vital', action: 'Riwayat'),
+              const SizedBox(height: 14),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          const CircleAvatar(
+                            radius: 27,
+                            backgroundColor: C.sky,
+                            child: Icon(Icons.elderly_rounded, color: C.primary),
+                          ),
+                          const SizedBox(width: 13),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'TTV $elderName',
+                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                Text(
+                                  live
+                                      ? 'Pembaruan real-time (3s)'
+                                      : 'Terakhir: ${vitals.ts.hour.toString().padLeft(2, '0')}.${vitals.ts.minute.toString().padLeft(2, '0')}',
+                                ),
+                              ],
+                            ),
+                          ),
+                          Pill(
+                            hasWarning ? 'Perlu Dicek' : 'Stabil',
+                            hasWarning ? C.red : C.green,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Vital(
+                              Icons.bloodtype,
+                              'Tekanan Darah',
+                              bp != null
+                                  ? '${bp!.value1.toInt()}/${bp!.value2?.toInt() ?? 80}'
+                                  : '128/78',
+                              'mmHg',
+                              C.red,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Vital(
+                              Icons.favorite,
+                              'Detak Jantung',
+                              '${vitals.hr.toInt()}',
+                              'bpm',
+                              (vitals.isTachycardia || vitals.isBradycardia)
+                                  ? C.red
+                                  : C.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Vital(
+                              Icons.air,
+                              'Saturasi Oksigen',
+                              '${vitals.spo2.toInt()}',
+                              '%',
+                              vitals.isHypoxia ? C.red : C.green,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Vital(
+                              Icons.thermostat,
+                              'Suhu Kulit',
+                              vitals.temp.toStringAsFixed(1),
+                              '°C',
+                              vitals.isFever ? C.red : C.amber,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Vital(
+                              Icons.directions_walk,
+                              'Aktivitas',
+                              vitals.activityLabel,
+                              '(${vitals.steps} langkah)',
+                              C.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Vital(
+                              Icons.speed_rounded,
+                              'Akselerometer',
+                              vitals.accelMag.toStringAsFixed(2),
+                              'g',
+                              vitals.accelMag > 2.5 ? C.red : C.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
                 children: [
-                  const Text(
-                    'Halo, Dinda 👋',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: ActionCard(
+                      Icons.location_on,
+                      'Lokasi Live',
+                      'Rumah • aman',
+                      C.primary,
+                      () => locationSheet(context),
                     ),
                   ),
-                  Text(
-                    live
-                        ? 'Data langsung dari SecondBand'
-                        : 'Pemantauan langsung dijeda',
-                    style: const TextStyle(color: Colors.white70),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ActionCard(
+                      Icons.warning_amber,
+                      'Pusat Alert',
+                      unackAlerts > 0
+                          ? '$unackAlerts peringatan aktif'
+                          : 'Kondisi aman',
+                      unackAlerts > 0 ? C.red : C.green,
+                      () => Navigator.push(context, fade(const Alerts())),
+                    ),
                   ),
                 ],
               ),
-            ),
-            Switch(
-              value: live,
-              onChanged: (v) => setState(() => live = v),
-              activeThumbColor: Colors.white,
-            ),
-          ],
-        ),
-      ),
-      Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Section('Tanda-Tanda Vital', action: 'Riwayat'),
-            const SizedBox(height: 14),
-            const Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  children: [
-                    const Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 27,
-                          backgroundColor: C.sky,
-                          child: Icon(Icons.elderly_woman, color: C.primary),
-                        ),
-                        SizedBox(width: 13),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'TTV Nenek Yenti',
-                                style: TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                              Text('Diperbarui 1 menit lalu'),
-                            ],
-                          ),
-                        ),
-                        Pill('Stabil', C.green),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: const [
-                        Expanded(
-                          child: Vital(
-                            Icons.bloodtype,
-                            'Tekanan Darah',
-                            '128/78',
-                            'mmHg',
-                            C.red,
-                          ),
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Vital(
-                            Icons.favorite,
-                            'Detak Jantung',
-                            '72',
-                            'bpm',
-                            C.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: ActionCard(
-                    Icons.location_on,
-                    'Lokasi Live',
-                    'Rumah • aman',
-                    C.primary,
-                    () => locationSheet(context),
+              const SizedBox(height: 23),
+              const Section('Perangkat Terhubung'),
+              const SizedBox(height: 12),
+              Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(14),
+                  leading: const CircleAvatar(
+                    backgroundColor: C.sky,
+                    child: Icon(Icons.watch, color: C.primary),
+                  ),
+                  title: const Text(
+                    'Simulation Engine (SecondBand)',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    live
+                        ? 'Tersambung • Sinkron tiap 3 detik'
+                        : 'Terputus • Ketuk toggle untuk live',
+                  ),
+                  trailing: Icon(
+                    live ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                    color: live ? C.green : Colors.grey,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ActionCard(
-                    Icons.warning_amber,
-                    'Pusat Alert',
-                    '2 perlu dicek',
-                    C.amber,
-                    () => Navigator.push(context, fade(const Alerts())),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 23),
-            const Section('Perangkat Terhubung'),
-            const SizedBox(height: 12),
-            const Card(
-              child: ListTile(
-                contentPadding: EdgeInsets.all(14),
-                leading: CircleAvatar(
-                  backgroundColor: C.sky,
-                  child: Icon(Icons.watch, color: C.primary),
-                ),
-                title: Text(
-                  'SecondBand',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: Text('Tersambung • sinkron sekarang'),
-                trailing: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.battery_5_bar, color: C.green),
-                    Text('89%'),
-                  ],
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
+
 
 class Vital extends StatelessWidget {
   const Vital(
@@ -1282,7 +1484,7 @@ class _ElderState extends State<Elder> {
             ),
             const SizedBox(height: 28),
             Text(
-              '${dayGreeting()},\nNenek Yenti 👋',
+              '${dayGreeting()},\n${TelemetryService.instance.activeElder?.name ?? 'Pak Budi'} 👋',
               style: const TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,
@@ -1339,7 +1541,7 @@ class _ElderState extends State<Elder> {
             ElderButton(
               Icons.call,
               'Telepon Keluarga',
-              'Hubungi Dinda',
+              'Hubungi Pendamping',
               C.green,
               () => callDialog(context, false),
             ),
@@ -1349,7 +1551,11 @@ class _ElderState extends State<Elder> {
               'Bantuan Darurat',
               'Tekan jika butuh bantuan',
               C.red,
-              () => callDialog(context, true),
+              () async {
+                await TelemetryService.instance
+                    .sendSos(note: 'SOS manual dipicu oleh Lansia');
+                if (context.mounted) callDialog(context, true);
+              },
             ),
           ],
         ),
@@ -1599,75 +1805,126 @@ class Alerts extends StatefulWidget {
 }
 
 class _AlertsState extends State<Alerts> {
-  final done = <int>{};
+  StreamSubscription<AlertItem>? _alertSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _alertSub = TelemetryService.instance.alertsStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _alertSub?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final x = [
-      (
-        'Detak jantung meningkat',
-        '120 bpm • 10 menit lalu',
-        C.red,
-        Icons.favorite,
-      ),
-      (
-        'Obat pagi belum dikonfirmasi',
-        'Amlodipine • 35 menit lalu',
-        C.amber,
-        Icons.medication,
-      ),
-      (
-        'SecondBand terhubung kembali',
-        'Baterai 89% • 1 jam lalu',
-        C.green,
-        Icons.watch,
-      ),
-    ];
+    final liveAlerts = TelemetryService.instance.currentAlerts;
+
     return SubPage(
       'Pusat Peringatan',
-      ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: 3,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (_, i) {
-          final a = x[i], ok = done.contains(i);
-          return Card(
-            child: ListTile(
-              onTap: () => setState(() => ok ? done.remove(i) : done.add(i)),
-              contentPadding: const EdgeInsets.all(14),
-              leading: CircleAvatar(
-                backgroundColor: a.$3.withValues(alpha: .12),
-                child: Icon(
-                  ok ? Icons.check : a.$4,
-                  color: ok ? C.green : a.$3,
+      liveAlerts.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline_rounded,
+                      color: C.green,
+                      size: 56,
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      'Semua Terkendali',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Belum ada anomali atau peringatan darurat terdeteksi.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: C.muted),
+                    ),
+                  ],
                 ),
               ),
-              title: Text(
-                a.$1,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  decoration: ok ? TextDecoration.lineThrough : null,
-                ),
-              ),
-              subtitle: Text(a.$2),
-              trailing: Pill(
-                ok
-                    ? 'Selesai'
-                    : i == 2
-                    ? 'Info'
-                    : 'Cek',
-                ok ? C.green : a.$3,
-              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(20),
+              itemCount: liveAlerts.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (_, i) {
+                final a = liveAlerts[i];
+                final isCritical = a.isCritical || a.isFall || a.isSos;
+                final color = isCritical
+                    ? C.red
+                    : (a.severity == 'warning' ? C.amber : C.primary);
+
+                return Card(
+                  child: ListTile(
+                    onTap: () {
+                      if (!a.acknowledged) {
+                        showEmergencyDialog(context, a);
+                      }
+                    },
+                    contentPadding: const EdgeInsets.all(14),
+                    leading: CircleAvatar(
+                      backgroundColor: color.withValues(alpha: .12),
+                      child: Icon(
+                        a.acknowledged
+                            ? Icons.check
+                            : (a.isFall
+                                ? Icons.personal_injury_rounded
+                                : (a.isSos
+                                    ? Icons.sos_rounded
+                                    : Icons.warning_amber_rounded)),
+                        color: a.acknowledged ? C.green : color,
+                      ),
+                    ),
+                    title: Text(
+                      a.title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        decoration:
+                            a.acknowledged ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(a.message),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Pukul ${a.ts.hour.toString().padLeft(2, '0')}.${a.ts.minute.toString().padLeft(2, '0')} • ${a.source.toUpperCase()}',
+                          style: const TextStyle(fontSize: 11, color: C.muted),
+                        ),
+                      ],
+                    ),
+                    trailing: Pill(
+                      a.acknowledged
+                          ? 'Selesai'
+                          : (isCritical ? 'Darurat' : 'Cek'),
+                      a.acknowledged ? C.green : color,
+                    ),
+                  ),
+                );
+              },
             ),
-          );
-        },
-      ),
       action: IconButton(
-        onPressed: () => msg(context, 'Ambang vital dapat diatur per profil.'),
+        onPressed: () => showSimulationSheet(context),
         icon: const Icon(Icons.tune),
       ),
     );
   }
 }
+
 
 class Search extends SearchDelegate<String> {
   final data = [
