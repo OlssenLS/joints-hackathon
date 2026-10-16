@@ -4,7 +4,6 @@ import 'creative_home.dart';
 import 'models/telemetry.dart';
 import 'services/telemetry_service.dart';
 import 'widgets/emergency_alert_dialog.dart';
-import 'widgets/simulation_control_sheet.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1568,39 +1567,25 @@ class _ProfileState extends State<Profile> {
                     ),
                     if (TelemetryService.instance.randomSimEnabled) ...[
                       const Divider(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                              ),
-                              onPressed: () async {
-                                await TelemetryService.instance.triggerRandomScenario();
-                                if (mounted) setState(() {});
-                              },
-                              icon: const Icon(Icons.bolt_rounded, size: 18),
-                              label: const Text(
-                                'Picu Acak Sekarang',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                              ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
                             ),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
                           ),
-                          const SizedBox(width: 8),
-                          IconButton.outlined(
-                            tooltip: 'Pilih Manual Skenario',
-                            style: IconButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            onPressed: () => showSimulationSheet(context),
-                            icon: const Icon(Icons.list_alt_rounded, size: 18),
+                          onPressed: () async {
+                            await TelemetryService.instance.triggerRandomScenario();
+                            if (mounted) setState(() {});
+                          },
+                          icon: const Icon(Icons.bolt_rounded, size: 18),
+                          label: const Text(
+                            'Picu Acak Sekarang',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ],
@@ -2149,10 +2134,6 @@ class _AlertsState extends State<Alerts> {
                 );
               },
             ),
-      action: IconButton(
-        onPressed: () => showSimulationSheet(context),
-        icon: const Icon(Icons.tune),
-      ),
     );
   }
 }
