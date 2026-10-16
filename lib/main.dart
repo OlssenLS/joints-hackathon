@@ -147,9 +147,9 @@ class Brand extends StatelessWidget {
 }
 
 Route<T> fade<T>(Widget page) => PageRouteBuilder<T>(
-  pageBuilder: (_, a, __) => page,
-  transitionsBuilder: (_, a, __, child) => FadeTransition(
-    opacity: CurvedAnimation(parent: a, curve: Curves.easeOut),
+  pageBuilder: (context, animation, secondaryAnimation) => page,
+  transitionsBuilder: (context, animation, secondaryAnimation, child) => FadeTransition(
+    opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
     child: child,
   ),
 );
@@ -885,15 +885,16 @@ class _ScheduleState extends State<Schedule> {
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
             sliver: SliverList.separated(
               itemCount: tasks.length + 1,
-              separatorBuilder: (_, __) => const SizedBox(height: 13),
-              itemBuilder: (_, i) {
-                if (i == 0)
+              separatorBuilder: (context, index) => const SizedBox(height: 13),
+              itemBuilder: (context, i) {
+                if (i == 0) {
                   return Section(
                     selected == 0
                         ? 'Agenda hari ini'
                         : 'Agenda ${now.add(Duration(days: selected)).day} ${months[now.add(Duration(days: selected)).month - 1]}',
                     action: '${tasks.length} aktivitas',
                   );
+                }
                 final t = tasks[i - 1];
                 return Card(
                   child: ListTile(
@@ -1649,7 +1650,7 @@ class Documents extends StatelessWidget {
       ListView.separated(
         padding: const EdgeInsets.all(20),
         itemCount: docs.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 11),
+        separatorBuilder: (context, index) => const SizedBox(height: 11),
         itemBuilder: (_, i) => Card(
           child: ListTile(
             onTap: () => msg(context, '${docs[i]} dibuka.'),
@@ -1858,7 +1859,7 @@ class _AlertsState extends State<Alerts> {
           : ListView.separated(
               padding: const EdgeInsets.all(20),
               itemCount: liveAlerts.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
               itemBuilder: (_, i) {
                 final a = liveAlerts[i];
                 final isCritical = a.isCritical || a.isFall || a.isSos;
