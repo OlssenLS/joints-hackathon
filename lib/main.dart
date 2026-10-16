@@ -1973,6 +1973,54 @@ class _ReportsState extends State<Reports> {
     }
   }
 
+  String _cleanRepetitiveReportText(String? raw) {
+    if (raw == null || raw.isEmpty) return 'Laporan belum tersedia.';
+    final lines = raw.split('\n');
+    final cleaned = <String>[];
+    final seen = <String>{};
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) {
+        cleaned.add('');
+        continue;
+      }
+      final norm = trimmed.replaceAll(RegExp(r'^[\d\.\-\+\*\s]+'), '').toLowerCase();
+      final key = norm.length > 30 ? norm.substring(0, 30) : norm;
+      if (key.length >= 15 && seen.contains(key)) {
+        continue;
+      }
+      if (key.length >= 15) {
+        seen.add(key);
+      }
+      cleaned.add(line);
+    }
+
+    while (cleaned.isNotEmpty) {
+      final last = cleaned.last.trim();
+      if (last.isEmpty) {
+        cleaned.removeLast();
+        continue;
+      }
+      if (RegExp(r'^(\d+[\.\)]|[\-\*\+]|#+)\s*$').hasMatch(last)) {
+        cleaned.removeLast();
+        continue;
+      }
+      if (!last.endsWith('.') &&
+          !last.endsWith('!') &&
+          !last.endsWith('?') &&
+          !last.endsWith('*') &&
+          !last.endsWith(':') &&
+          !last.endsWith(')')) {
+        cleaned.removeLast();
+        continue;
+      }
+      break;
+    }
+
+    return cleaned.join('\n').trim();
+  }
+
   void _copyToClipboard(String content) {
     Clipboard.setData(ClipboardData(text: content));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -2081,7 +2129,7 @@ class _ReportsState extends State<Reports> {
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
-                      _copyToClipboard(_currentReport?['content_md'] ?? '');
+                      _copyToClipboard(_cleanRepetitiveReportText(_currentReport?['content_md']));
                     },
                     icon: const Icon(Icons.share_rounded, size: 18),
                     label: const Text('Bagikan Teks', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -2329,7 +2377,7 @@ class _ReportsState extends State<Reports> {
                             padding: const EdgeInsets.symmetric(vertical: 11),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
-                          onPressed: () => _copyToClipboard(contentMd ?? ''),
+                          onPressed: () => _copyToClipboard(_cleanRepetitiveReportText(contentMd)),
                           icon: const Icon(Icons.copy_rounded, size: 16),
                           label: const Text('Salin Teks', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
                         ),
@@ -2408,7 +2456,7 @@ class _ReportsState extends State<Reports> {
                           ),
                           const Divider(height: 24),
                           Text(
-                            contentMd ?? 'Laporan belum tersedia.',
+                            _cleanRepetitiveReportText(contentMd),
                             style: const TextStyle(
                               fontSize: 13,
                               height: 1.6,
