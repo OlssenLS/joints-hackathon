@@ -2023,6 +2023,8 @@ class Alerts extends StatefulWidget {
 
 class _AlertsState extends State<Alerts> {
   StreamSubscription<AlertItem>? _alertSub;
+  int _selectedFilter = 0; // 0: Semua, 1: Perlu Ditangani, 2: Selesai
+  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -2038,102 +2040,473 @@ class _AlertsState extends State<Alerts> {
     super.dispose();
   }
 
+  Future<void> _confirmAcknowledgeAll(int count) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.done_all_rounded, color: C.primary, size: 24),
+            SizedBox(width: 10),
+            Text('Tangani Semua?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Text(
+          'Tandai seluruh $count peringatan aktif sebagai telah ditangani dan selesai?',
+          style: const TextStyle(fontSize: 14, color: C.dark),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal', style: TextStyle(color: C.muted)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: C.primary,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Ya, Selesaikan',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() => _isProcessing = true);
+      final handled = await TelemetryService.instance.acknowledgeAllAlerts();
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded,
+                  color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text('$handled peringatan berhasil ditandai selesai.'),
+            ],
+          ),
+          backgroundColor: C.green,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final liveAlerts = TelemetryService.instance.currentAlerts;
+    final unhandledAlerts = liveAlerts.where((a) => !a.acknowledged).toList();
+    final handledAlerts = liveAlerts.where((a) => a.acknowledged).toList();
+
+    final List<AlertItem> displayList;
+    if (_selectedFilter == 1) {
+      displayList = unhandledAlerts;
+    } else if (_selectedFilter == 2) {
+      displayList = handledAlerts;
+    } else {
+      displayList = liveAlerts;
+    }
+
+    final hasUnhandled = unhandledAlerts.isNotEmpty;
 
     return SubPage(
       'Pusat Peringatan',
-      liveAlerts.isEmpty
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      Column(
+        children: [
+          // Header summary banner
+          if (liveAlerts.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: hasUnhandled
+                      ? const Color(0xFFFFF7ED)
+                      : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: hasUnhandled
+                        ? C.amber.withValues(alpha: 0.3)
+                        : C.green.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
                   children: [
-                    Icon(
-                      Icons.check_circle_outline_rounded,
-                      color: C.green,
-                      size: 56,
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: hasUnhandled
+                            ? C.amber.withValues(alpha: 0.15)
+                            : C.green.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        hasUnhandled
+                            ? Icons.warning_amber_rounded
+                            : Icons.check_circle_rounded,
+                        color: hasUnhandled ? const Color(0xFFB45309) : C.green,
+                        size: 20,
+                      ),
                     ),
-                    SizedBox(height: 14),
-                    Text(
-                      'Semua Terkendali',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            hasUnhandled
+                                ? '${unhandledAlerts.length} Peringatan Butuh Penanganan'
+                                : 'Semua Kondisi Terkendali',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: hasUnhandled
+                                  ? const Color(0xFF9A3412)
+                                  : const Color(0xFF166534),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            hasUnhandled
+                                ? 'Ketuk "Tangani" pada kartu atau selesaikan sekaligus.'
+                                : '${handledAlerts.length} riwayat peringatan telah diselesaikan.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: hasUnhandled
+                                  ? const Color(0xFFC2410C)
+                                  : const Color(0xFF15803D),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Belum ada anomali atau peringatan darurat terdeteksi.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: C.muted),
-                    ),
+                    if (hasUnhandled) ...[
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFB45309),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: _isProcessing
+                            ? null
+                            : () => _confirmAcknowledgeAll(
+                                unhandledAlerts.length),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.done_all_rounded, size: 14),
+                            SizedBox(width: 4),
+                            Text('Selesaikan',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: liveAlerts.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (_, i) {
-                final a = liveAlerts[i];
-                final isCritical = a.isCritical || a.isFall || a.isSos;
-                final color = isCritical
-                    ? C.red
-                    : (a.severity == 'warning' ? C.amber : C.primary);
-
-                return Card(
-                  child: ListTile(
-                    onTap: () {
-                      if (!a.acknowledged) {
-                        showEmergencyDialog(context, a);
-                      }
-                    },
-                    contentPadding: const EdgeInsets.all(14),
-                    leading: CircleAvatar(
-                      backgroundColor: color.withValues(alpha: .12),
-                      child: Icon(
-                        a.acknowledged
-                            ? Icons.check
-                            : (a.isFall
-                                ? Icons.personal_injury_rounded
-                                : (a.isSos
-                                    ? Icons.sos_rounded
-                                    : Icons.warning_amber_rounded)),
-                        color: a.acknowledged ? C.green : color,
-                      ),
-                    ),
-                    title: Text(
-                      a.title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        decoration:
-                            a.acknowledged ? TextDecoration.lineThrough : null,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(a.message),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Pukul ${a.ts.hour.toString().padLeft(2, '0')}.${a.ts.minute.toString().padLeft(2, '0')} • ${a.source.toUpperCase()}',
-                          style: const TextStyle(fontSize: 11, color: C.muted),
-                        ),
-                      ],
-                    ),
-                    trailing: Pill(
-                      a.acknowledged
-                          ? 'Selesai'
-                          : (isCritical ? 'Darurat' : 'Cek'),
-                      a.acknowledged ? C.green : color,
-                    ),
-                  ),
-                );
-              },
             ),
+            const SizedBox(height: 12),
+            // Filter Pills Row
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  _buildFilterChip(0, 'Semua (${liveAlerts.length})'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(
+                      1, 'Perlu Ditangani (${unhandledAlerts.length})',
+                      badgeColor: hasUnhandled ? C.red : null),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(2, 'Selesai (${handledAlerts.length})'),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Expanded(
+            child: displayList.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _selectedFilter == 1
+                                ? Icons.verified_user_rounded
+                                : Icons.check_circle_outline_rounded,
+                            color: C.green,
+                            size: 56,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            _selectedFilter == 1
+                                ? 'Tidak Ada Peringatan Aktif'
+                                : (_selectedFilter == 2
+                                    ? 'Belum Ada yang Selesai'
+                                    : 'Semua Terkendali'),
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _selectedFilter == 1
+                                ? 'Semua peringatan telah ditangani dengan baik.'
+                                : (_selectedFilter == 2
+                                    ? 'Peringatan yang ditangani akan muncul di sini.'
+                                    : 'Belum ada anomali atau peringatan darurat terdeteksi.'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: C.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                    itemCount: displayList.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (ctx, i) {
+                      final a = displayList[i];
+                      final isCritical = a.isCritical || a.isFall || a.isSos;
+                      final color = isCritical
+                          ? C.red
+                          : (a.severity == 'warning' ? C.amber : C.primary);
+
+                      return Card(
+                        elevation: a.acknowledged ? 0 : 1,
+                        color: a.acknowledged
+                            ? const Color(0xFFFAFBFB)
+                            : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: a.acknowledged
+                                ? const Color(0xFFE5ECED)
+                                : color.withValues(alpha: 0.35),
+                            width: a.acknowledged ? 1 : 1.5,
+                          ),
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            showEmergencyDialog(context, a);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: a.acknowledged
+                                      ? C.green.withValues(alpha: .12)
+                                      : color.withValues(alpha: .12),
+                                  child: Icon(
+                                    a.acknowledged
+                                        ? Icons.check_circle_rounded
+                                        : (a.isFall
+                                            ? Icons.personal_injury_rounded
+                                            : (a.isSos
+                                                ? Icons.sos_rounded
+                                                : Icons.warning_amber_rounded)),
+                                    color: a.acknowledged ? C.green : color,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              a.title,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 14,
+                                                color: a.acknowledged
+                                                    ? C.muted
+                                                    : C.ink,
+                                                decoration: a.acknowledged
+                                                    ? TextDecoration.lineThrough
+                                                    : null,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Pill(
+                                            isCritical
+                                                ? 'Darurat'
+                                                : 'Peringatan',
+                                            a.acknowledged ? C.muted : color,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        a.message,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: a.acknowledged
+                                              ? const Color(0xFF8A9EA5)
+                                              : const Color(0xFF425A63),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            'Pukul ${a.ts.hour.toString().padLeft(2, '0')}.${a.ts.minute.toString().padLeft(2, '0')} • ${a.source.toUpperCase()}',
+                                            style: const TextStyle(
+                                                fontSize: 11, color: C.muted),
+                                          ),
+                                          if (!a.acknowledged)
+                                            FilledButton.tonalIcon(
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: isCritical
+                                                    ? C.red.withValues(
+                                                        alpha: 0.12)
+                                                    : C.amber.withValues(
+                                                        alpha: 0.16),
+                                                foregroundColor: isCritical
+                                                    ? C.red
+                                                    : const Color(0xFFB45309),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 6),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                                minimumSize: Size.zero,
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                              ),
+                                              onPressed: () async {
+                                                await TelemetryService.instance
+                                                    .acknowledgeAlert(a.id);
+                                                if (mounted) setState(() {});
+                                              },
+                                              icon: const Icon(
+                                                  Icons.check_rounded,
+                                                  size: 14),
+                                              label: const Text(
+                                                'Tangani',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            )
+                                          else
+                                            const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.done_all_rounded,
+                                                    size: 14, color: C.green),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'Selesai',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: C.green,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      action: hasUnhandled
+          ? TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: C.primary,
+                backgroundColor: C.primary.withValues(alpha: 0.1),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              onPressed: () => _confirmAcknowledgeAll(
+                  unhandledAlerts.length),
+              icon: const Icon(Icons.done_all_rounded, size: 16),
+              label: Text(
+                'Tangani (${unhandledAlerts.length})',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 12),
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildFilterChip(int index, String label, {Color? badgeColor}) {
+    final selected = _selectedFilter == index;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => setState(() => _selectedFilter = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? C.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? C.primary : const Color(0xFFD6E2E6),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+            color: selected
+                ? Colors.white
+                : (badgeColor ?? const Color(0xFF4A646E)),
+          ),
+        ),
+      ),
     );
   }
 }

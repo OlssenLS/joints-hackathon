@@ -457,6 +457,41 @@ class TelemetryService {
     return false;
   }
 
+  int acknowledgeAllLocally() {
+    int count = 0;
+    for (final a in currentAlerts) {
+      if (!a.acknowledged) {
+        a.acknowledged = true;
+        count++;
+      }
+    }
+    if (count > 0 && currentAlerts.isNotEmpty) {
+      _alertsController.add(currentAlerts.first);
+    }
+    return count;
+  }
+
+  Future<int> acknowledgeAllAlerts() async {
+    final localCount = acknowledgeAllLocally();
+    final elderId = _activeElderId;
+    if (elderId == null || _token == null) return localCount;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/elders/$elderId/alerts/ack-all'),
+        headers: {'Authorization': 'Bearer $_token'},
+      ).timeout(const Duration(seconds: 4));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return (data['count'] as num?)?.toInt() ?? localCount;
+      }
+    } catch (e) {
+      debugPrint('Error acknowledging all alerts on server: $e');
+    }
+    return localCount;
+  }
+
   Future<bool> sendSos({String? note}) async {
     final elderId = _activeElderId;
     if (elderId == null || _token == null) return false;
