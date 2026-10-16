@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "LanSIAP - Chrome",
+      "request": "launch",
+      "type": "dart",
+      "deviceId": "chrome"
+    },
+    {
+      "name": "LanSIAP - Device",
+      "request": "launch",
+      "type": "dart"
+    }
+  ]
+}
