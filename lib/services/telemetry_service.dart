@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -384,7 +385,64 @@ class TelemetryService {
     }
   }
 
+  // --- Random Simulation Controller ---
+  bool randomSimEnabled = false;
+  Timer? _randomSimTimer;
+  String? lastRandomScenario;
+
+  static const List<String> availableScenarios = [
+    'fall',
+    'tachycardia',
+    'bradycardia',
+    'hypoxia',
+    'fever',
+    'wander',
+    'hypertensive',
+    'hypoglycemia',
+  ];
+
+  void setRandomSimulationEnabled(bool enabled) {
+    randomSimEnabled = enabled;
+    _randomSimTimer?.cancel();
+    _randomSimTimer = null;
+
+    if (enabled) {
+      _scheduleNextRandomEvent();
+    } else {
+      triggerScenario('normal');
+    }
+  }
+
+  void _scheduleNextRandomEvent() {
+    if (!randomSimEnabled) return;
+    // Delay randomly between 20 and 35 seconds
+    final delaySeconds = 20 + Random().nextInt(16);
+    _randomSimTimer = Timer(Duration(seconds: delaySeconds), () async {
+      if (!randomSimEnabled) return;
+      await triggerRandomScenario();
+      _scheduleNextRandomEvent();
+    });
+  }
+
+  Future<String?> triggerRandomScenario() async {
+    final pool = List<String>.from(availableScenarios);
+    pool.shuffle();
+    final chosen = pool.first;
+    lastRandomScenario = chosen;
+    await triggerScenario(chosen);
+    return chosen;
+  }
+
+  void acknowledgeAlertLocally(String alertId) {
+    final idx = currentAlerts.indexWhere((a) => a.id == alertId);
+    if (idx != -1) {
+      currentAlerts[idx].acknowledged = true;
+      _alertsController.add(currentAlerts[idx]);
+    }
+  }
+
   Future<bool> acknowledgeAlert(String alertId) async {
+    acknowledgeAlertLocally(alertId);
     if (_token == null) return false;
     try {
       final res = await http.post(
@@ -392,16 +450,9 @@ class TelemetryService {
         headers: {'Authorization': 'Bearer $_token'},
       ).timeout(const Duration(seconds: 4));
 
-      if (res.statusCode == 200) {
-        final idx = currentAlerts.indexWhere((a) => a.id == alertId);
-        if (idx != -1) {
-          currentAlerts[idx].acknowledged = true;
-          _alertsController.add(currentAlerts[idx]);
-        }
-        return true;
-      }
+      return res.statusCode == 200;
     } catch (e) {
-      debugPrint('Error acknowledging alert: $e');
+      debugPrint('Error acknowledging alert on server: $e');
     }
     return false;
   }

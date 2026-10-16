@@ -651,23 +651,6 @@ class _ShellState extends State<Shell> {
       if (!mounted) return;
       if (alert.isCritical || alert.isFall || alert.isSos) {
         showEmergencyDialog(context, alert);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(child: Text(alert.message)),
-              ],
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
       }
     });
   }
@@ -696,17 +679,6 @@ class _ShellState extends State<Shell> {
     return Frame(
       child: Scaffold(
         body: IndexedStack(index: index, children: pages),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => showSimulationSheet(context),
-          backgroundColor: C.primary,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text(
-            'Simulasi',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-        ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: index,
           height: 72,
@@ -1526,6 +1498,118 @@ class _ProfileState extends State<Profile> {
               ],
             ),
             const SizedBox(height: 17),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: TelemetryService.instance.randomSimEnabled
+                      ? C.primary
+                      : const Color(0xFFE2EDF0),
+                  width: 1.5,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: TelemetryService.instance.randomSimEnabled
+                                ? C.primary.withValues(alpha: 0.12)
+                                : const Color(0xFFF0F4F6),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.tune_rounded,
+                            color: TelemetryService.instance.randomSimEnabled
+                                ? C.primary
+                                : Colors.grey,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Simulasi Kejadian Darurat',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                TelemetryService.instance.randomSimEnabled
+                                    ? 'Acak otomatis aktif (tiap 20-35s)'
+                                    : 'Simulasi dinonaktifkan',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: TelemetryService.instance.randomSimEnabled
+                                      ? C.primary
+                                      : const Color(0xFF627B84),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: TelemetryService.instance.randomSimEnabled,
+                          activeThumbColor: C.primary,
+                          onChanged: (val) {
+                            setState(() {
+                              TelemetryService.instance.setRandomSimulationEnabled(val);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    if (TelemetryService.instance.randomSimEnabled) ...[
+                      const Divider(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              onPressed: () async {
+                                await TelemetryService.instance.triggerRandomScenario();
+                                if (mounted) setState(() {});
+                              },
+                              icon: const Icon(Icons.bolt_rounded, size: 18),
+                              label: const Text(
+                                'Picu Acak Sekarang',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.outlined(
+                            tooltip: 'Pilih Manual Skenario',
+                            style: IconButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: () => showSimulationSheet(context),
+                            icon: const Icon(Icons.list_alt_rounded, size: 18),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             Menu(
               'Laporan Kesehatan',
               Icons.description_outlined,

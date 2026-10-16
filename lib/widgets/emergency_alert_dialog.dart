@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import '../models/telemetry.dart';
 import '../services/telemetry_service.dart';
 
+bool _isEmergencyDialogOpen = false;
+
 void showEmergencyDialog(BuildContext context, AlertItem alert) {
+  if (_isEmergencyDialogOpen) return;
+  _isEmergencyDialogOpen = true;
   showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => EmergencyAlertDialog(alert: alert),
-  );
+  ).then((_) {
+    _isEmergencyDialogOpen = false;
+  });
 }
 
 class EmergencyAlertDialog extends StatefulWidget {
@@ -22,7 +28,6 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-  bool _loading = false;
 
   @override
   void initState() {
@@ -182,13 +187,7 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
                       ),
                     ),
                     onPressed: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Memanggil $elderName...'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                      Navigator.of(context, rootNavigator: true).pop();
                     },
                     icon: const Icon(Icons.call),
                     label: const Text('Hubungi'),
@@ -204,34 +203,13 @@ class _EmergencyAlertDialogState extends State<EmergencyAlertDialog>
                         borderRadius: BorderRadius.circular(24),
                       ),
                     ),
-                    onPressed: _loading
-                        ? null
-                        : () async {
-                            final nav = Navigator.of(context);
-                            final messenger = ScaffoldMessenger.of(context);
-                            setState(() => _loading = true);
-                            await TelemetryService.instance
-                                .acknowledgeAlert(alert.id);
-                            if (mounted) {
-                              nav.pop();
-                              messenger.showSnackBar(
-                                const SnackBar(
-                                  content: Text('Peringatan telah ditangani.'),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          },
-                    child: _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Tangani (Ack)'),
+                    onPressed: () {
+                      // Acknowledge locally and remotely, dismiss immediately
+                      alert.acknowledged = true;
+                      TelemetryService.instance.acknowledgeAlert(alert.id);
+                      Navigator.of(context, rootNavigator: true).pop();
+                    },
+                    child: const Text('Tangani (Ack)'),
                   ),
                 ),
               ],
